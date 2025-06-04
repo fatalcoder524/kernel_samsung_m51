@@ -1,0 +1,63 @@
+name: m51
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Prepare timezone
+      run: |
+            echo "BUILD_TIME=$(TZ=Asia/Jakarta date "+%d%m%Y-%H%M")" >> $GITHUB_ENV
+            sudo rm /etc/localtime
+            sudo ln -s /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+
+    - name: Install Dependencies
+      run: |
+            sudo apt update -y
+            sudo apt install bc cpio flex bison aptitude git python-is-python3 tar perl wget curl lz4 -y
+            sudo apt install libssl-dev -y
+
+    - name: Fetch Toolchains
+      run: |
+            mkdir clang && curl https://android.googlesource.com/platform//prebuilts/clang/host/linux-x86/+archive/4c6fbc28d3b078a5308894fc175f962bb26a5718/clang-r383902b1.tar.gz -RLO && tar -C clang/ -xf clang-*.tar.gz
+            git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b master-kernel-build-2021 gcc64
+            git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 -b master-kernel-build-2021 gcc32
+
+    - name: Fetch KernelSU-Next
+      run: |
+            set -x
+            rm -rf KernelSU-Next
+            rm -rf drivers/KernelSU-Next
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash
+
+    - name: Patch KernelSU-Next commits
+      run: |
+            git config --global user.email "binaytiwari6@gmail.com"
+            git config --global user.name "iambinaytiwari"
+            curl https://gist.githubusercontent.com/iambinaytiwari/2b34e650afcf1f08c593f7d9b03f0656/raw/89dd1e732a3826674cd559daf95724844c3b786e/0001-ksu.patch >> ksu.patch
+            git am ksu.patch
+
+    - name: Build
+      run: |
+            export KBUILD_BUILD_USER=iambinaytiwari
+            export KBUILD_BUILD_HOST=build-host
+            export KBUILD_COMPILER_STRING="${PWD}/clang"
+            export PATH="${PWD}/clang/bin:${PWD}gcc64/bin:${PWD}gcc32/bin:${PATH}"
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_COMPAT=arm-linux-androideabi- O=out m51_defconfig
+            make ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_COMPAT=arm-linux-androideabi- O=out -j$(nproc --all)
+
+    - name: Fetch Anykernel3
+      run: |
+            git clone --depth=1 https://github.com/iambinaytiwari/AnyKernel3 -b m51 AnyKernel3 && rm -rf AnyKernel3/.git AnyKernel3/LICENSE AnyKernel3/README.md
+            cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+            cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+            cp out/arch/arm64/boot/dts/qcom/sdmmagpie.dtb AnyKernel3/dtb
+
+    - name: Upload Kernel
+      uses: actions/upload-artifact@v4
+      with:
+        name: ANIK_m51-${{ env.BUILD_TIME }}
+        path: AnyKernel3/*
