@@ -164,7 +164,7 @@ static int fib6_rule_action(struct fib_rule *rule, struct flowi *flp,
 		if (!idev)
 			goto again;
 		err = fib6_rule_saddr(net, rule, flags, flp6,
-				      idev->dev);
+				      ip6_dst_idev(&rt->dst)->dev);
 
 		if (err == -EAGAIN)
 			goto again;
