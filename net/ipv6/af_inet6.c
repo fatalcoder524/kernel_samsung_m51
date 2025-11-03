@@ -311,35 +311,6 @@ int __inet6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
 		 bool force_bind_address_no_port, bool with_lock)
 {
 	struct sockaddr_in6 *addr = (struct sockaddr_in6 *)uaddr;
-	struct sock *sk = sock->sk;
-	struct ipv6_pinfo *np = inet6_sk(sk);
-	__be32 v4addr = 0;
-	bool saved_ipv6only;
-	int addr_type = 0;
-	int err = 0;
-
-	/* If the socket has its own bind function then use it. */
-	if (sk->sk_prot->bind)
-		return sk->sk_prot->bind(sk, uaddr, addr_len);
-
-	if (addr_len < SIN6_LEN_RFC2133)
-		return -EINVAL;
-
-	/* BPF prog is run before any checks are done so that if the prog
-	 * changes context in a wrong way it will be caught.
-	 */
-	err = BPF_CGROUP_RUN_PROG_INET6_BIND(sk, uaddr);
-	if (err)
-		return err;
-
-	return __inet6_bind(sk, uaddr, addr_len, false, true);
-}
-EXPORT_SYMBOL(inet6_bind);
-
-int __inet6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
-		 bool force_bind_address_no_port, bool with_lock)
-{
-	struct sockaddr_in6 *addr = (struct sockaddr_in6 *)uaddr;
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct net *net = sock_net(sk);
