@@ -33,12 +33,69 @@ jobs:
             rm -rf drivers/KernelSU-Next
             curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash
 
-    - name: Patch KernelSU-Next commits
+    - name: Clone and Patch SusFS
       run: |
-            git config --global user.email "binaytiwari6@gmail.com"
-            git config --global user.name "iambinaytiwari"
-            curl https://gist.githubusercontent.com/iambinaytiwari/2b34e650afcf1f08c593f7d9b03f0656/raw/89dd1e732a3826674cd559daf95724844c3b786e/0001-ksu.patch >> ksu.patch
-            git am ksu.patch
+            git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git
+            
+            # Apply New SusFS Patch
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/b19a27ceed937d961a7236e4adc85b0885d1f03e.patch | patch -p1 -F 3 || true
+            sed -i -e '/#include "internal.h"/a#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)' -e '/#include "internal.h"/a#include <linux/susfs_def.h>' -e '/#include "internal.h"/a#endif' fs/namespace.c
+            sed -i -e '/unsigned int sysctl_mount_max __read_mostly = 100000;/a \
+            #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT \
+            extern bool susfs_is_current_ksu_domain(void); \
+            extern bool susfs_is_current_zygote_domain(void); \
+             \
+            static DEFINE_IDA(susfs_mnt_id_ida); \
+            static DEFINE_IDA(susfs_mnt_group_ida); \
+            static int susfs_mnt_id_start = DEFAULT_SUS_MNT_ID; \
+            static int susfs_mnt_group_start = DEFAULT_SUS_MNT_GROUP_ID; \
+             \
+            #define CL_ZYGOTE_COPY_MNT_NS BIT(24)  \
+            #define CL_COPY_MNT_NS BIT(25) \
+            #endif \
+             \
+            #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+            extern void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname); \
+            bool susfs_is_auto_add_sus_ksu_default_mount_enabled = true; \
+            #endif \
+            #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+            extern int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target); \
+            bool susfs_is_auto_add_sus_bind_mount_enabled = true; \
+            #endif \
+            #ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+            extern void susfs_auto_add_try_umount_for_bind_mount(struct path *path); \
+            bool susfs_is_auto_add_try_umount_for_bind_mount_enabled = true; \
+            #endif' fs/namespace.c
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/4990033cc5d0a05e237a63832c1e4e73cccbd396.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/a21bd1ce75530143b1044b0873e01e5b1d55344d.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/cb156baa8ab03b8973874c05bb522d6ba98e73d5.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/3b4aba477404c32bc03b98b84e20664369ac6e7f.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/6cd98bc0b8b1e342b1858f8bf80ac77f84b60a14.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/77ca28a53924b5d3c63f29a35c51422253771681.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/0edae346cc4df80ae7ef15ed204887a8f24f9480.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/f21a183509934091f5e2e0dd9adfd03c73cd7013.patch | patch -p1 -F 3
+            curl -Ls https://github.com/sidex15/android_kernel_lge_sm8150/commit/3230d02a91e91f7466fed3ef7edc1220853d958b.patch | patch -p1 -F 3
+            sed -i 's/SUSFS_VERSION "v1.5.9"/SUSFS_VERSION "v1.5.12"/' include/linux/susfs.h
+
+            # Apply Scope Minimal Manual Hooks Patch and enable OverlayFS Support
+            curl -Ls curl https://gist.githubusercontent.com/iambinaytiwari/2b34e650afcf1f08c593f7d9b03f0656/raw/89dd1e732a3826674cd559daf95724844c3b786e/0001-ksu.patch | patch -p1
+
+            # Apply New SusFS KSUN Patch
+            cd KernelSU-Next
+            curl -Ls https://gitlab.com/simonpunk/susfs4ksu/-/raw/2c0f974474e0c8fbcc85cd9a496d3152f42676ba/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch | sed -e 's/susfs_is_current_proc_umounted()/susfs_is_current_non_root_user_app_proc()/' -e 's/susfs_set_current_proc_umounted();/susfs_set_current_non_root_user_app_proc();' | patch -p1 --forward || true
+            
+            for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
+              echo "Patching file: $file.c with fix_$file.c.patch"
+              patch -p1 --forward < "../kernel_patches/next/susfs_fix_patches/v1.5.12/fix_$file.c.patch"
+            done
+            patch -p1 --forward < "../kernel_patches/next/susfs_fix_patches/v1.5.12/fix_kernel_compat.c.patch"
+            
+            cd ./kernel
+            git submodule update --init --recursive
+            BASE_VERSION=10200
+            KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" Makefile
 
     - name: Build
       run: |
